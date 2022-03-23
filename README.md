@@ -1,4 +1,4 @@
-# audio_session
+# audio_session（fix）
 
 This plugin informs the operating system of the nature of your audio app (e.g. game, media player, assistant, etc.) and how your app will handle and initiate audio interruptions (e.g. phone call interruptions). It also provides access to all of the capabilities of AVAudioSession on iOS and AudioManager on Android, providing for discoverability and configuration of audio hardware.
 
@@ -9,25 +9,34 @@ This plugin can be used both by app developers, to initialise appropriate audio 
 ## For app developers
 
 ### Configuring the audio session
+create and release
+```dart
+//create
+final session = AudioSession()
+
+//release
+@override
+void dispose() {
+  super.dispose();
+  session.release();
+}
+```
 
 Configure your app's audio session with reasonable defaults for playing music:
 
 ```dart
-final session = await AudioSession.instance;
 await session.configure(AudioSessionConfiguration.music());
 ```
 
 Configure your app's audio session with reasonable defaults for playing podcasts/audiobooks:
 
 ```dart
-final session = await AudioSession.instance;
 await session.configure(AudioSessionConfiguration.speech());
 ```
 
 Or use a custom configuration:
 
 ```dart
-final session = await AudioSession.instance;
 await session.configure(AudioSessionConfiguration(
   avAudioSessionCategory: AVAudioSessionCategory.playAndRecord,
   avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.allowBluetooth,
