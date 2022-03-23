@@ -1,4 +1,4 @@
-# audio_session（fix）
+# audio_session「tgclub fix」
 
 This plugin informs the operating system of the nature of your audio app (e.g. game, media player, assistant, etc.) and how your app will handle and initiate audio interruptions (e.g. phone call interruptions). It also provides access to all of the capabilities of AVAudioSession on iOS and AudioManager on Android, providing for discoverability and configuration of audio hardware.
 
