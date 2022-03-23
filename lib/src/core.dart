@@ -19,44 +19,45 @@ import 'darwin.dart';
 /// plugins will call this before they play or record audio.
 class AudioSession {
   static const MethodChannel _channel =
-      const MethodChannel('com.ryanheise.audio_session');
-  static AudioSession? _instance;
+  const MethodChannel('com.ryanheise.audio_session');
 
-  /// The singleton instance across all Flutter engines.
-  static Future<AudioSession> get instance async {
-    if (_instance == null) {
-      _instance = AudioSession._();
-      try {
-        // TODO: Use this code without the '?' once a Dart bug is fixed.
-        // (similar instances occur elsewhere)
-        //Map? data = await _channel.invokeMethod<Map>('getConfiguration');
-        Map? data = await _channel.invokeMethod<Map?>('getConfiguration');
-        if (data != null) {
-          _instance!._configuration = AudioSessionConfiguration.fromJson(data);
-        }
-      } catch (e) {
-        // Unsupported platform, so default to null.
-        // TODO: We should at least try share the config between isolates on the
-        // Dart side.
-      }
-    }
-    return _instance!;
-  }
+  // static AudioSession? _instance;
+  //
+  // /// The singleton instance across all Flutter engines.
+  // static Future<AudioSession> get instance async {
+  //   if (_instance == null) {
+  //     _instance = AudioSession._();
+  //     try {
+  //       // TODO: Use this code without the '?' once a Dart bug is fixed.
+  //       // (similar instances occur elsewhere)
+  //       //Map? data = await _channel.invokeMethod<Map>('getConfiguration');
+  //       Map? data = await _channel.invokeMethod<Map?>('getConfiguration');
+  //       if (data != null) {
+  //         _instance!._configuration = AudioSessionConfiguration.fromJson(data);
+  //       }
+  //     } catch (e) {
+  //       // Unsupported platform, so default to null.
+  //       // TODO: We should at least try share the config between isolates on the
+  //       // Dart side.
+  //     }
+  //   }
+  //   return _instance!;
+  // }
 
-  AndroidAudioManager? _androidAudioManager =
-      !kIsWeb && Platform.isAndroid ? AndroidAudioManager() : null;
-  AVAudioSession? _avAudioSession =
-      !kIsWeb && Platform.isIOS ? AVAudioSession() : null;
+  static AndroidAudioManager? _androidAudioManager =
+  !kIsWeb && Platform.isAndroid ? AndroidAudioManager() : null;
+  static AVAudioSession? _avAudioSession =
+  !kIsWeb && Platform.isIOS ? AVAudioSession() : null;
   AudioSessionConfiguration? _configuration;
   final _configurationSubject = BehaviorSubject<AudioSessionConfiguration>();
   final _interruptionEventSubject = PublishSubject<AudioInterruptionEvent>();
   final _becomingNoisyEventSubject = PublishSubject<void>();
   final _devicesChangedEventSubject =
-      PublishSubject<AudioDevicesChangedEvent>();
+  PublishSubject<AudioDevicesChangedEvent>();
   late final BehaviorSubject<Set<AudioDevice>> _devicesSubject;
   AVAudioSessionRouteDescription? _previousAVAudioSessionRoute;
 
-  AudioSession._() {
+  AudioSession() {
     _devicesSubject = BehaviorSubject<Set<AudioDevice>>(
       onListen: () async {
         _devicesSubject.add(await getDevices());
@@ -74,7 +75,7 @@ class AudioSession {
           _interruptionEventSubject.add(AudioInterruptionEvent(
               false,
               notification.options
-                      .contains(AVAudioSessionInterruptionOptions.shouldResume)
+                  .contains(AVAudioSessionInterruptionOptions.shouldResume)
                   ? AudioInterruptionType.pause
                   : AudioInterruptionType.unknown));
           break;
@@ -82,32 +83,34 @@ class AudioSession {
     });
     _avAudioSession?.routeChangeStream
         .where((routeChange) =>
-            routeChange.reason ==
-            AVAudioSessionRouteChangeReason.oldDeviceUnavailable)
+    routeChange.reason ==
+        AVAudioSessionRouteChangeReason.oldDeviceUnavailable)
         .listen((routeChange) async {
       _becomingNoisyEventSubject.add(null);
       final currentRoute = await _avAudioSession!.currentRoute;
       _previousAVAudioSessionRoute = currentRoute;
       final previousRoute = _previousAVAudioSessionRoute ?? currentRoute;
       final inputPortsAdded =
-          currentRoute.inputs.difference(previousRoute.inputs);
+      currentRoute.inputs.difference(previousRoute.inputs);
       final outputPortsAdded =
-          currentRoute.outputs.difference(previousRoute.outputs);
+      currentRoute.outputs.difference(previousRoute.outputs);
       final inputPortsRemoved =
-          previousRoute.inputs.difference(currentRoute.inputs);
+      previousRoute.inputs.difference(currentRoute.inputs);
       final outputPortsRemoved =
-          previousRoute.outputs.difference(currentRoute.outputs);
+      previousRoute.outputs.difference(currentRoute.outputs);
       final inputPorts = inputPortsAdded.union(inputPortsRemoved);
       final outputPorts = outputPortsAdded.union(outputPortsRemoved);
 
       final devicesAdded = inputPortsAdded
           .union(outputPortsAdded)
-          .map((port) => _darwinPort2device(port,
+          .map((port) =>
+          _darwinPort2device(port,
               inputPorts: inputPorts, outputPorts: outputPorts))
           .toSet();
       final devicesRemoved = inputPortsRemoved
           .union(outputPortsRemoved)
-          .map((port) => _darwinPort2device(port,
+          .map((port) =>
+          _darwinPort2device(port,
               inputPorts: inputPorts, outputPorts: outputPorts))
           .toSet();
 
@@ -123,7 +126,7 @@ class AudioSession {
     _androidAudioManager?.becomingNoisyEventStream
         .listen((event) => _becomingNoisyEventSubject.add(null));
 
-    _androidAudioManager?.setAudioDevicesAddedListener((devices) async {
+    _androidAudioManager?.setAudioDevicesAddedListener(hashCode, (devices) async {
       _devicesChangedEventSubject.add(AudioDevicesChangedEvent(
         devicesAdded: devices.map(_androidDevice2device).toSet(),
         devicesRemoved: {},
@@ -132,7 +135,7 @@ class AudioSession {
         _devicesSubject.add(await getDevices());
       }
     });
-    _androidAudioManager?.setAudioDevicesRemovedListener((devices) async {
+    _androidAudioManager?.setAudioDevicesRemovedListener(hashCode, (devices) async {
       _devicesChangedEventSubject.add(AudioDevicesChangedEvent(
         devicesAdded: {},
         devicesRemoved: devices.map(_androidDevice2device).toSet(),
@@ -213,14 +216,13 @@ class AudioSession {
   /// [avAudioSessionSetActiveOptions], [androidAudioFocusGainType],
   /// [androidAudioAttributesttributes] and [androidWillPauseWhenDucked] are
   /// speficied, they will override the configuration.
-  Future<bool> setActive(
-    bool active, {
+  Future<bool> setActive(bool active, {
     AVAudioSessionSetActiveOptions? avAudioSessionSetActiveOptions,
     AndroidAudioFocusGainType? androidAudioFocusGainType,
     AndroidAudioAttributes? androidAudioAttributes,
     bool? androidWillPauseWhenDucked,
     AudioSessionConfiguration fallbackConfiguration =
-        const AudioSessionConfiguration.music(),
+    const AudioSessionConfiguration.music(),
   }) async {
     final configuration = _configuration ?? fallbackConfiguration;
     if (!isConfigured) {
@@ -237,11 +239,11 @@ class AudioSession {
             configuration.androidWillPauseWhenDucked ?? false;
         var ducked = false;
         final success = await _androidAudioManager!
-            .requestAudioFocus(AndroidAudioFocusRequest(
+            .requestAudioFocus(hashCode, AndroidAudioFocusRequest(
           gainType: androidAudioFocusGainType ??
               configuration.androidAudioFocusGainType,
           audioAttributes:
-              androidAudioAttributes ?? configuration.androidAudioAttributes,
+          androidAudioAttributes ?? configuration.androidAudioAttributes,
           willPauseWhenDucked: androidWillPauseWhenDucked ??
               configuration.androidWillPauseWhenDucked,
           onAudioFocusChanged: (focus) {
@@ -266,8 +268,8 @@ class AudioSession {
                 ducked = false;
                 break;
               case AndroidAudioFocus.lossTransientCanDuck:
-                // We enforce the "will pause when ducked" configuration by
-                // sending the app a pause event instead of a duck event.
+              // We enforce the "will pause when ducked" configuration by
+              // sending the app a pause event instead of a duck event.
                 _interruptionEventSubject.add(AudioInterruptionEvent(
                     true,
                     pauseWhenDucked
@@ -281,7 +283,7 @@ class AudioSession {
         return success;
       } else {
         // Deactivate
-        final success = await _androidAudioManager!.abandonAudioFocus();
+        final success = await _androidAudioManager!.abandonAudioFocus(hashCode);
         return success;
       }
     }
@@ -289,14 +291,13 @@ class AudioSession {
   }
 
   /// Completes with a list of available audio devices.
-  Future<Set<AudioDevice>> getDevices(
-      {bool includeInputs = true, bool includeOutputs = true}) async {
+  Future<Set<AudioDevice>> getDevices({bool includeInputs = true, bool includeOutputs = true}) async {
     final devices = <AudioDevice>{};
     if (_androidAudioManager != null) {
       var flags = AndroidGetAudioDevicesFlags.none;
       if (includeInputs) flags |= AndroidGetAudioDevicesFlags.inputs;
       if (includeOutputs) flags |= AndroidGetAudioDevicesFlags.outputs;
-      final androidDevices = await _androidAudioManager!.getDevices(flags);
+      final androidDevices = await _androidAudioManager!.getDevices(hashCode, flags);
       devices.addAll(androidDevices.map(_androidDevice2device).toSet());
     } else if (_avAudioSession != null) {
       final currentRoute = await _avAudioSession!.currentRoute;
@@ -305,14 +306,16 @@ class AudioSession {
         devices.addAll(darwinInputs
             .map((port) => _darwinPort2device(port, inputPorts: darwinInputs))
             .toSet());
-        devices.addAll(currentRoute.inputs.map((port) => _darwinPort2device(
+        devices.addAll(currentRoute.inputs.map((port) =>
+            _darwinPort2device(
               port,
               inputPorts: currentRoute.inputs,
               outputPorts: currentRoute.outputs,
             )));
       }
       if (includeOutputs) {
-        devices.addAll(currentRoute.outputs.map((port) => _darwinPort2device(
+        devices.addAll(currentRoute.outputs.map((port) =>
+            _darwinPort2device(
               port,
               inputPorts: currentRoute.inputs,
               outputPorts: currentRoute.outputs,
@@ -320,6 +323,11 @@ class AudioSession {
       }
     }
     return devices;
+  }
+
+  /// 进行资源释放
+  void release() {
+    _androidAudioManager!.release(hashCode);
   }
 
   static AudioDeviceType _darwinPort2type(AVAudioSessionPort port,
@@ -345,8 +353,8 @@ class AudioSession {
         return AudioDeviceType.hdmi;
       case AVAudioSessionPort.headphones:
         return inputPorts
-                .map((desc) => desc.portType)
-                .contains(AVAudioSessionPort.headsetMic)
+            .map((desc) => desc.portType)
+            .contains(AVAudioSessionPort.headsetMic)
             ? AudioDeviceType.wiredHeadset
             : AudioDeviceType.wiredHeadphones;
       case AVAudioSessionPort.lineOut:
@@ -372,8 +380,7 @@ class AudioSession {
     }
   }
 
-  static AudioDevice _darwinPort2device(
-    AVAudioSessionPortDescription port, {
+  static AudioDevice _darwinPort2device(AVAudioSessionPortDescription port, {
     Set<AVAudioSessionPortDescription> inputPorts = const {},
     Set<AVAudioSessionPortDescription> outputPorts = const {},
   }) {
@@ -501,60 +508,60 @@ class AudioSessionConfiguration {
 
   AudioSessionConfiguration.fromJson(Map data)
       : this(
-          avAudioSessionCategory: data['avAudioSessionCategory'] == null
-              ? null
-              : AVAudioSessionCategory.values[data['avAudioSessionCategory']],
-          avAudioSessionCategoryOptions:
-              data['avAudioSessionCategoryOptions'] == null
-                  ? null
-                  : AVAudioSessionCategoryOptions(
-                      data['avAudioSessionCategoryOptions']),
-          avAudioSessionMode: data['avAudioSessionMode'] == null
-              ? null
-              : AVAudioSessionMode.values[data['avAudioSessionMode']],
-          avAudioSessionRouteSharingPolicy:
-              data['avAudioSessionRouteSharingPolicy'] == null
-                  ? null
-                  : AVAudioSessionRouteSharingPolicy
-                      .values[data['avAudioSessionRouteSharingPolicy']],
-          avAudioSessionSetActiveOptions:
-              data['avAudioSessionSetActiveOptions'] == null
-                  ? null
-                  : AVAudioSessionSetActiveOptions(
-                      data['avAudioSessionSetActiveOptions']),
-          androidAudioAttributes: data['androidAudioAttributes'] == null
-              ? null
-              : AndroidAudioAttributes.fromJson(data['androidAudioAttributes']),
-          androidAudioFocusGainType: AndroidAudioFocusGainType
-              .values[data['androidAudioFocusGainType']]!,
-          androidWillPauseWhenDucked: data['androidWillPauseWhenDucked'],
-        );
+    avAudioSessionCategory: data['avAudioSessionCategory'] == null
+        ? null
+        : AVAudioSessionCategory.values[data['avAudioSessionCategory']],
+    avAudioSessionCategoryOptions:
+    data['avAudioSessionCategoryOptions'] == null
+        ? null
+        : AVAudioSessionCategoryOptions(
+        data['avAudioSessionCategoryOptions']),
+    avAudioSessionMode: data['avAudioSessionMode'] == null
+        ? null
+        : AVAudioSessionMode.values[data['avAudioSessionMode']],
+    avAudioSessionRouteSharingPolicy:
+    data['avAudioSessionRouteSharingPolicy'] == null
+        ? null
+        : AVAudioSessionRouteSharingPolicy
+        .values[data['avAudioSessionRouteSharingPolicy']],
+    avAudioSessionSetActiveOptions:
+    data['avAudioSessionSetActiveOptions'] == null
+        ? null
+        : AVAudioSessionSetActiveOptions(
+        data['avAudioSessionSetActiveOptions']),
+    androidAudioAttributes: data['androidAudioAttributes'] == null
+        ? null
+        : AndroidAudioAttributes.fromJson(data['androidAudioAttributes']),
+    androidAudioFocusGainType: AndroidAudioFocusGainType
+        .values[data['androidAudioFocusGainType']]!,
+    androidWillPauseWhenDucked: data['androidWillPauseWhenDucked'],
+  );
 
   /// A recipe for creating an audio configuration for a music player.
   const AudioSessionConfiguration.music()
       : this(
-          avAudioSessionCategory: AVAudioSessionCategory.playback,
-          avAudioSessionMode: AVAudioSessionMode.defaultMode,
-          androidAudioAttributes: const AndroidAudioAttributes(
-            contentType: AndroidAudioContentType.music,
-            usage: AndroidAudioUsage.media,
-          ),
-          androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
-        );
+    avAudioSessionCategory: AVAudioSessionCategory.playback,
+    avAudioSessionMode: AVAudioSessionMode.defaultMode,
+    androidAudioAttributes: const AndroidAudioAttributes(
+      contentType: AndroidAudioContentType.music,
+      usage: AndroidAudioUsage.media,
+    ),
+    androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
+  );
 
   /// A recipe for creating an audio configuration for an app that
   /// predominantly plays continuous speech such as a podcast or audiobook app.
   const AudioSessionConfiguration.speech()
       : this(
-          avAudioSessionCategory: AVAudioSessionCategory.playback,
-          avAudioSessionMode: AVAudioSessionMode.spokenAudio,
-          androidAudioAttributes: const AndroidAudioAttributes(
-            contentType: AndroidAudioContentType.speech,
-            usage: AndroidAudioUsage.media,
-          ),
-          androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
-          androidWillPauseWhenDucked: true,
-        );
+    avAudioSessionCategory: AVAudioSessionCategory.playback,
+    avAudioSessionMode: AVAudioSessionMode.spokenAudio,
+    androidAudioAttributes: const AndroidAudioAttributes(
+      contentType: AndroidAudioContentType.speech,
+      usage: AndroidAudioUsage.media,
+    ),
+    androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
+    androidWillPauseWhenDucked: true,
+  );
 
   /// Creates a copy of this configuration with the given fields replaced by
   /// new values.
@@ -570,29 +577,30 @@ class AudioSessionConfiguration {
   }) =>
       AudioSessionConfiguration(
         avAudioSessionCategory:
-            avAudioSessionCategory ?? this.avAudioSessionCategory,
+        avAudioSessionCategory ?? this.avAudioSessionCategory,
         avAudioSessionCategoryOptions:
-            avAudioSessionCategoryOptions ?? this.avAudioSessionCategoryOptions,
+        avAudioSessionCategoryOptions ?? this.avAudioSessionCategoryOptions,
         avAudioSessionMode: avAudioSessionMode ?? this.avAudioSessionMode,
         avAudioSessionRouteSharingPolicy: avAudioSessionRouteSharingPolicy ??
             this.avAudioSessionRouteSharingPolicy,
         avAudioSessionSetActiveOptions: avAudioSessionSetActiveOptions ??
             this.avAudioSessionSetActiveOptions,
         androidAudioAttributes:
-            androidAudioAttributes ?? this.androidAudioAttributes,
+        androidAudioAttributes ?? this.androidAudioAttributes,
         androidAudioFocusGainType:
-            androidAudioFocusGainType ?? this.androidAudioFocusGainType,
+        androidAudioFocusGainType ?? this.androidAudioFocusGainType,
         androidWillPauseWhenDucked:
-            androidWillPauseWhenDucked ?? this.androidWillPauseWhenDucked,
+        androidWillPauseWhenDucked ?? this.androidWillPauseWhenDucked,
       );
 
   // Converts this instance to JSON.
-  Map toJson() => {
+  Map toJson() =>
+      {
         'avAudioSessionCategory': avAudioSessionCategory?.index,
         'avAudioSessionCategoryOptions': avAudioSessionCategoryOptions?.value,
         'avAudioSessionMode': avAudioSessionMode?.index,
         'avAudioSessionRouteSharingPolicy':
-            avAudioSessionRouteSharingPolicy?.index,
+        avAudioSessionRouteSharingPolicy?.index,
         'avAudioSessionSetActiveOptions': avAudioSessionSetActiveOptions?.value,
         'androidAudioAttributes': androidAudioAttributes?.toJson(),
         'androidAudioFocusGainType': androidAudioFocusGainType.index,

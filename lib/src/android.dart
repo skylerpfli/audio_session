@@ -8,36 +8,37 @@ import 'package:rxdart/rxdart.dart';
 /// works on GitHub.
 class AndroidAudioManager {
   static const MethodChannel _channel =
-      const MethodChannel('com.ryanheise.android_audio_manager');
+  const MethodChannel('com.ryanheise.android_audio_manager');
   static AndroidAudioManager? _instance;
 
   final _becomingNoisyEventSubject = PublishSubject<void>();
-  AndroidOnAudioFocusChanged? _onAudioFocusChanged;
-  AndroidOnAudioDevicesChanged? _onAudioDevicesAdded;
-  AndroidOnAudioDevicesChanged? _onAudioDevicesRemoved;
+
+  Map<int, AndroidOnAudioFocusChanged?> _onAudioFocusChangedMap = new Map();
+  Map<int, AndroidOnAudioDevicesChanged?> _onAudioDevicesAddedMap = new Map();
+  Map<int, AndroidOnAudioDevicesChanged?> _onAudioDevicesRemovedMap = new Map();
 
   factory AndroidAudioManager() {
     return _instance ??= AndroidAudioManager._();
   }
 
-  void setAudioDevicesAddedListener(
-      AndroidOnAudioDevicesChanged onAudioDevicesAdded) {
-    _onAudioDevicesAdded = onAudioDevicesAdded;
+  void setAudioDevicesAddedListener(int sessionKey, AndroidOnAudioDevicesChanged onAudioDevicesAdded) {
+    _onAudioDevicesAddedMap[sessionKey] = onAudioDevicesAdded;
   }
 
-  void setAudioDevicesRemovedListener(
-      AndroidOnAudioDevicesChanged onAudioDevicesRemoved) {
-    _onAudioDevicesRemoved = onAudioDevicesRemoved;
+  void setAudioDevicesRemovedListener(int sessionKey, AndroidOnAudioDevicesChanged onAudioDevicesRemoved) {
+    _onAudioDevicesRemovedMap[sessionKey] = onAudioDevicesRemoved;
   }
 
   AndroidAudioManager._() {
     _channel.setMethodCallHandler((MethodCall call) async {
       final List args = call.arguments;
+      var sessionKey = args[0];
       switch (call.method) {
         case 'onAudioFocusChanged':
+          var _onAudioFocusChanged = _onAudioFocusChangedMap[sessionKey];
           if (_onAudioFocusChanged != null) {
-            _onAudioFocusChanged!(decodeMapEnum(
-                AndroidAudioFocus.values, args[0],
+            _onAudioFocusChanged(decodeMapEnum(
+                AndroidAudioFocus.values, args[1],
                 defaultIndex: 1));
           }
           break;
@@ -45,13 +46,15 @@ class AndroidAudioManager {
           _becomingNoisyEventSubject.add(null);
           break;
         case 'onAudioDevicesAdded':
+          var _onAudioDevicesAdded = _onAudioDevicesAddedMap[sessionKey];
           if (_onAudioDevicesAdded != null) {
-            _onAudioDevicesAdded!(_decodeAudioDevices(args[0]));
+            _onAudioDevicesAdded(_decodeAudioDevices(args[1]));
           }
           break;
         case 'onAudioDevicesRemoved':
+          var _onAudioDevicesRemoved = _onAudioDevicesRemovedMap[sessionKey];
           if (_onAudioDevicesRemoved != null) {
-            _onAudioDevicesRemoved!(_decodeAudioDevices(args[0]));
+            _onAudioDevicesRemoved(_decodeAudioDevices(args[1]));
           }
           break;
       }
@@ -61,46 +64,45 @@ class AndroidAudioManager {
   Stream<void> get becomingNoisyEventStream =>
       _becomingNoisyEventSubject.stream;
 
-  Future<bool> requestAudioFocus(AndroidAudioFocusRequest focusRequest) async {
-    _onAudioFocusChanged = focusRequest.onAudioFocusChanged;
+  Future<bool> requestAudioFocus(int sessionKey, AndroidAudioFocusRequest focusRequest) async {
+    _onAudioFocusChangedMap[sessionKey] = focusRequest.onAudioFocusChanged;
     return (await _channel
-        .invokeMethod<bool>('requestAudioFocus', [focusRequest.toJson()]))!;
+        .invokeMethod<bool>('requestAudioFocus', [sessionKey, focusRequest.toJson()]))!;
   }
 
-  Future<bool> abandonAudioFocus() async {
-    return (await _channel.invokeMethod<bool>('abandonAudioFocus'))!;
+  Future<bool> abandonAudioFocus(int sessionKey) async {
+    return (await _channel.invokeMethod<bool>('abandonAudioFocus', [sessionKey]))!;
   }
 
   /// (UNTESTED) Requires API level 19
-  Future<void> dispatchMediaKeyEvent(AndroidKeyEvent keyEvent) async {
-    await _channel.invokeMethod('dispatchMediaKeyEvent', [keyEvent._toMap()]);
+  Future<void> dispatchMediaKeyEvent(int sessionKey, AndroidKeyEvent keyEvent) async {
+    await _channel.invokeMethod('dispatchMediaKeyEvent', [sessionKey, keyEvent._toMap()]);
   }
 
   /// (UNTESTED) Requires API level 21
-  Future<bool> isVolumeFixed() async {
-    return (await _channel.invokeMethod<bool>('isVolumeFixed'))!;
+  Future<bool> isVolumeFixed(int sessionKey, int key) async {
+    return (await _channel.invokeMethod<bool>('isVolumeFixed', [sessionKey]))!;
   }
 
   /// (UNTESTED)
-  Future<void> adjustStreamVolume(AndroidStreamType streamType,
+  Future<void> adjustStreamVolume(int sessionKey, int key, AndroidStreamType streamType,
       AndroidAudioAdjustment direction, AndroidAudioVolumeFlags flags) async {
     await _channel.invokeMethod(
-        'adjustStreamVolume', [streamType.index, direction.index, flags.value]);
+        'adjustStreamVolume', [sessionKey, streamType.index, direction.index, flags.value]);
   }
 
   /// (UNTESTED)
-  Future<void> adjustVolume(
-      AndroidAudioAdjustment direction, AndroidAudioVolumeFlags flags) async {
-    await _channel.invokeMethod('adjustVolume', [direction.index, flags.value]);
+  Future<void> adjustVolume(int sessionKey, AndroidAudioAdjustment direction, AndroidAudioVolumeFlags flags) async {
+    await _channel.invokeMethod('adjustVolume', [sessionKey, direction.index, flags.value]);
   }
 
   /// (UNTESTED)
-  Future<void> adjustSuggestedStreamVolume(
-      AndroidAudioAdjustment direction,
+  Future<void> adjustSuggestedStreamVolume(int sessionKey, AndroidAudioAdjustment direction,
       AndroidStreamType? suggestedStreamType,
       AndroidAudioVolumeFlags flags) async {
     const useDefaultStreamType = 0x80000000;
     await _channel.invokeMethod('adjustSuggestedStreamVolume', [
+      sessionKey,
       direction.index,
       suggestedStreamType?.index ?? useDefaultStreamType,
       flags.value
@@ -108,34 +110,35 @@ class AndroidAudioManager {
   }
 
   /// (UNTESTED)
-  Future<AndroidRingerMode> getRingerMode() async {
+  Future<AndroidRingerMode> getRingerMode(int sessionKey) async {
     return decodeEnum(AndroidRingerMode.values,
-        (await _channel.invokeMethod<int>('getRingerMode'))!,
+        (await _channel.invokeMethod<int>('getRingerMode', [sessionKey]))!,
         defaultIndex: 2);
   }
 
   /// (UNTESTED)
-  Future<int> getStreamMaxVolume(AndroidStreamType streamType) async {
+  Future<int> getStreamMaxVolume(int sessionKey, AndroidStreamType streamType) async {
     return (await _channel
-        .invokeMethod<int>('getStreamMaxVolume', [streamType.index]))!;
+        .invokeMethod<int>('getStreamMaxVolume', [sessionKey, streamType.index]))!;
   }
 
   /// (UNTESTED) Requires API level 28
-  Future<int> getStreamMinVolume(AndroidStreamType streamType) async {
+  Future<int> getStreamMinVolume(int sessionKey, AndroidStreamType streamType) async {
     return (await _channel
-        .invokeMethod<int>('getStreamMinVolume', [streamType.index]))!;
+        .invokeMethod<int>('getStreamMinVolume', [sessionKey, streamType.index]))!;
   }
 
   /// (UNTESTED)
-  Future<int> getStreamVolume(AndroidStreamType streamType) async {
+  Future<int> getStreamVolume(int sessionKey, AndroidStreamType streamType) async {
     return (await _channel
-        .invokeMethod<int>('getStreamVolume', [streamType.index]))!;
+        .invokeMethod<int>('getStreamVolume', [sessionKey, streamType.index]))!;
   }
 
   /// (UNTESTED) Requires API level 28
-  Future<double> getStreamVolumeDb(AndroidStreamType streamType, int index,
+  Future<double> getStreamVolumeDb(int sessionKey, AndroidStreamType streamType, int index,
       AndroidAudioDeviceType deviceType) async {
     return (await _channel.invokeMethod<double>('getStreamVolumeDb', [
+      sessionKey,
       streamType.index,
       index,
       deviceType.index,
@@ -143,142 +146,142 @@ class AndroidAudioManager {
   }
 
   /// (UNTESTED)
-  Future<void> setRingerMode(AndroidRingerMode ringerMode) async {
-    await _channel.invokeMethod<int>('setRingerMode', [ringerMode.index]);
+  Future<void> setRingerMode(int sessionKey, AndroidRingerMode ringerMode) async {
+    await _channel.invokeMethod<int>('setRingerMode', [sessionKey, ringerMode.index]);
   }
 
   /// (UNTESTED)
-  Future<void> setStreamVolume(AndroidStreamType streamType, int index,
+  Future<void> setStreamVolume(int sessionKey, AndroidStreamType streamType, int index,
       AndroidAudioVolumeFlags flags) async {
     await _channel.invokeMethod(
-        'setStreamVolume', [streamType.index, index, flags.value]);
+        'setStreamVolume', [sessionKey, streamType.index, index, flags.value]);
   }
 
   /// (UNTESTED) Requires API level 23
-  Future<bool> isStreamMute(AndroidStreamType streamType) async {
+  Future<bool> isStreamMute(int sessionKey, AndroidStreamType streamType) async {
     return (await _channel
-        .invokeMethod<bool>('isStreamMute', [streamType.index]))!;
+        .invokeMethod<bool>('isStreamMute', [sessionKey, streamType.index]))!;
   }
 
   /// (UNTESTED)
-  Future<void> setSpeakerphoneOn(bool enabled) async {
-    await _channel.invokeMethod<bool>('setSpeakerphoneOn', [enabled]);
+  Future<void> setSpeakerphoneOn(int sessionKey, bool enabled) async {
+    await _channel.invokeMethod<bool>('setSpeakerphoneOn', [sessionKey, enabled]);
   }
 
   /// (UNTESTED)
-  Future<bool> isSpeakerphoneOn() async {
-    return (await _channel.invokeMethod<bool>('isSpeakerphoneOn'))!;
+  Future<bool> isSpeakerphoneOn(int sessionKey) async {
+    return (await _channel.invokeMethod<bool>('isSpeakerphoneOn', [sessionKey]))!;
   }
 
   /// (UNTESTED) Requires API level 29
-  Future<void> setAllowedCapturePolicy(
-      AndroidAudioCapturePolicy capturePolicy) async {
+  Future<void> setAllowedCapturePolicy(int sessionKey, AndroidAudioCapturePolicy capturePolicy) async {
     await _channel
-        .invokeMethod<bool>('setAllowedCapturePolicy', [capturePolicy.index]);
+        .invokeMethod<bool>('setAllowedCapturePolicy', [sessionKey, capturePolicy.index]);
   }
 
   /// (UNTESTED) Requires API level 29
-  Future<AndroidAudioCapturePolicy> getAllowedCapturePolicy() async {
+  Future<AndroidAudioCapturePolicy> getAllowedCapturePolicy(int sessionKey) async {
     return decodeMapEnum(AndroidAudioCapturePolicy.values,
-        (await _channel.invokeMethod<int>('getAllowedCapturePolicy'))!,
+        (await _channel.invokeMethod<int>('getAllowedCapturePolicy', [sessionKey]))!,
         defaultIndex: 1);
   }
 
   // TODO: isOffloadedPlaybackSupported
 
   /// (UNTESTED)
-  Future<bool> isBluetoothScoAvailableOffCall() async {
+  Future<bool> isBluetoothScoAvailableOffCall(int sessionKey) async {
     return (await _channel
-        .invokeMethod<bool>('isBluetoothScoAvailableOffCall'))!;
+        .invokeMethod<bool>('isBluetoothScoAvailableOffCall', [sessionKey]))!;
   }
 
   /// (UNTESTED)
-  Future<void> startBluetoothSco() async {
-    await _channel.invokeMethod('startBluetoothSco');
+  Future<void> startBluetoothSco(int sessionKey) async {
+    await _channel.invokeMethod('startBluetoothSco', [sessionKey]);
   }
 
   /// (UNTESTED)
-  Future<void> stopBluetoothSco() async {
-    await _channel.invokeMethod('stopBluetoothSco');
+  Future<void> stopBluetoothSco(int sessionKey) async {
+    await _channel.invokeMethod('stopBluetoothSco', [sessionKey]);
   }
 
   /// (UNTESTED)
-  Future<void> setBluetoothScoOn(bool enabled) async {
-    await _channel.invokeMethod<bool>('setBluetoothScoOn', [enabled]);
+  Future<void> setBluetoothScoOn(int sessionKey, bool enabled) async {
+    await _channel.invokeMethod<bool>('setBluetoothScoOn', [sessionKey, enabled]);
   }
 
   /// (UNTESTED)
-  Future<bool> isBluetoothScoOn() async {
-    return (await _channel.invokeMethod<bool>('isBluetoothScoOn'))!;
+  Future<bool> isBluetoothScoOn(int sessionKey) async {
+    return (await _channel.invokeMethod<bool>('isBluetoothScoOn', [sessionKey]))!;
   }
 
   /// (UNTESTED)
-  Future<void> setMicrophoneMute(bool enabled) async {
-    await _channel.invokeMethod<bool>('setMicrophoneMute', [enabled]);
+  Future<void> setMicrophoneMute(int sessionKey, bool enabled) async {
+    await _channel.invokeMethod<bool>('setMicrophoneMute', [sessionKey, enabled]);
   }
 
   /// (UNTESTED)
-  Future<bool> isMicrophoneMute() async {
-    return (await _channel.invokeMethod<bool>('isMicrophoneMute'))!;
+  Future<bool> isMicrophoneMute(int sessionKey) async {
+    return (await _channel.invokeMethod<bool>('isMicrophoneMute', [sessionKey]))!;
   }
 
   /// (UNTESTED)
-  Future<void> setMode(AndroidAudioHardwareMode mode) async {
-    await _channel.invokeMethod('setMode', [mode.index]);
+  Future<void> setMode(int sessionKey, AndroidAudioHardwareMode mode) async {
+    await _channel.invokeMethod('setMode', [sessionKey, mode.index]);
   }
 
   /// (UNTESTED)
-  Future<AndroidAudioHardwareMode> getMode() async {
+  Future<AndroidAudioHardwareMode> getMode(int sessionKey) async {
     return decodeMapEnum(AndroidAudioHardwareMode.values,
-        (await _channel.invokeMethod<int>('getMode'))!);
+        (await _channel.invokeMethod<int>('getMode', [sessionKey]))!);
   }
 
   /// (UNTESTED)
-  Future<bool> isMusicActive() async {
-    return (await _channel.invokeMethod<bool>('isMusicActive'))!;
+  Future<bool> isMusicActive(int sessionKey) async {
+    return (await _channel.invokeMethod<bool>('isMusicActive', [sessionKey]))!;
   }
 
   /// (UNTESTED) Requires API level 21
-  Future<int> generateAudioSessionId() async {
-    return (await _channel.invokeMethod<int>('generateAudioSessionId'))!;
+  Future<int> generateAudioSessionId(int sessionKey) async {
+    return (await _channel.invokeMethod<int>('generateAudioSessionId', [sessionKey]))!;
   }
 
   // TODO?: AUDIO_SESSION_ID_GENERATE
 
   /// (UNTESTED)
-  Future<void> setParameters(Map<String, String> parameters) async {
+  Future<void> setParameters(int sessionKey, Map<String, String> parameters) async {
     await _channel.invokeMethod(
         'setParameters',
-        parameters.entries
+        [sessionKey, parameters.entries
             .map((entry) => '${entry.key}=${entry.value}')
-            .join(';'));
+            .join(';')
+        ]);
   }
 
   /// (UNTESTED)
-  Future<Map<String, String>> getParameters(String keys) async {
+  Future<Map<String, String>> getParameters(int sessionKey, String keys) async {
     // What is the format of keys?
     return Map.fromEntries(
-        (await _channel.invokeMethod<String>('getParameters', [keys]))!
+        (await _channel.invokeMethod<String>('getParameters', [sessionKey, keys]))!
             .split(';')
             .map((s) => s.split('='))
             .map((pair) => MapEntry(pair[0], pair[1])));
   }
 
   /// (UNTESTED)
-  Future<void> playSoundEffect(AndroidSoundEffectType effectType,
+  Future<void> playSoundEffect(int sessionKey, AndroidSoundEffectType effectType,
       {double? volume}) async {
     // TODO: support variant with userId parameter.
-    await _channel.invokeMethod('playSoundEffect', [effectType.index, volume]);
+    await _channel.invokeMethod('playSoundEffect', [sessionKey, effectType.index, volume]);
   }
 
   /// (UNTESTED)
-  Future<void> loadSoundEffects() async {
-    await _channel.invokeMethod('loadSoundEffects');
+  Future<void> loadSoundEffects(int sessionKey) async {
+    await _channel.invokeMethod('loadSoundEffects', [sessionKey]);
   }
 
   /// (UNTESTED)
-  Future<void> unloadSoundEffects() async {
-    await _channel.invokeMethod('unloadSoundEffects');
+  Future<void> unloadSoundEffects(int sessionKey) async {
+    await _channel.invokeMethod('unloadSoundEffects', [sessionKey]);
   }
 
   // TODO: (un)registerAudioPlaybackCallback
@@ -287,82 +290,91 @@ class AndroidAudioManager {
   // TODO: getActiveRecordingConfigurations
 
   /// (UNTESTED) Requires API level 17
-  Future<int?> getOutputSampleRate() =>
-      _getIntProperty('android.media.property.OUTPUT_SAMPLE_RATE');
+  Future<int?> getOutputSampleRate(int sessionKey) =>
+      _getIntProperty(sessionKey, 'android.media.property.OUTPUT_SAMPLE_RATE');
 
   /// (UNTESTED) Requires API level 17
-  Future<int?> getOutputFramesPerBuffer() =>
-      _getIntProperty('android.media.property.OUTPUT_FRAMES_PER_BUFFER');
+  Future<int?> getOutputFramesPerBuffer(int sessionKey) =>
+      _getIntProperty(sessionKey, 'android.media.property.OUTPUT_FRAMES_PER_BUFFER');
 
   /// (UNTESTED) Requires API level 17
-  Future<bool> getSupportMicNearUltrasound() =>
-      _getBoolProperty('android.media.property.SUPPORT_MIC_NEAR_ULTRASOUND');
+  Future<bool> getSupportMicNearUltrasound(int sessionKey) =>
+      _getBoolProperty(sessionKey, 'android.media.property.SUPPORT_MIC_NEAR_ULTRASOUND');
 
   /// (UNTESTED) Requires API level 17
-  Future<bool> getSupportSpeakerNearUltrasound() => _getBoolProperty(
-      'android.media.property.SUPPORT_SPEAKER_NEAR_ULTRASOUND');
+  Future<bool> getSupportSpeakerNearUltrasound(int sessionKey) =>
+      _getBoolProperty(sessionKey,
+          'android.media.property.SUPPORT_SPEAKER_NEAR_ULTRASOUND');
 
   /// (UNTESTED) Requires API level 17
-  Future<bool> getSupportAudioSourceUnprocessed() => _getBoolProperty(
-      'android.media.property.SUPPORT_AUDIO_SOURCE_UNPROCESSED');
+  Future<bool> getSupportAudioSourceUnprocessed(int sessionKey) =>
+      _getBoolProperty(sessionKey,
+          'android.media.property.SUPPORT_AUDIO_SOURCE_UNPROCESSED');
 
   /// (UNTESTED) Requires API level 17
-  Future<bool> _getBoolProperty(String key) async {
-    final s = await _getProperty(key);
+  Future<bool> _getBoolProperty(int sessionKey, String key) async {
+    final s = await _getProperty(sessionKey, key);
     return s == 'true';
   }
 
   /// (UNTESTED) Requires API level 17
-  Future<int?> _getIntProperty(String key) async {
-    final s = await _getProperty(key);
+  Future<int?> _getIntProperty(int sessionKey, String key) async {
+    final s = await _getProperty(sessionKey, key);
     return s != null ? int.parse(s) : null;
   }
 
   /// (UNTESTED) Requires API level 17
-  Future<String?> _getProperty(String key) async {
-    return await _channel.invokeMethod<String>('getProperty', [key]);
+  Future<String?> _getProperty(int sessionKey, String key) async {
+    return await _channel.invokeMethod<String>('getProperty', [sessionKey, key]);
   }
 
   /// Requires API level 23
-  Future<List<AndroidAudioDeviceInfo>> getDevices(
-      AndroidGetAudioDevicesFlags flags) async {
+  Future<List<AndroidAudioDeviceInfo>> getDevices(int sessionKey, AndroidGetAudioDevicesFlags flags) async {
     return _decodeAudioDevices(
-        (await _channel.invokeMethod<dynamic>('getDevices', [flags.value]))!);
+        (await _channel.invokeMethod<dynamic>('getDevices', [sessionKey, flags.value]))!);
   }
 
   /// (UNTESTED) Requires API level 28
-  Future<List<AndroidMicrophoneInfo>> getMicrophones() async {
+  Future<List<AndroidMicrophoneInfo>> getMicrophones(int sessionKey) async {
     return ((await _channel.invokeListMethod<Map<String, dynamic>>(
-            'getMicrophones')) as List<dynamic>)
-        .map((raw) => AndroidMicrophoneInfo(
-              description: raw['description'],
-              id: raw['id'],
-              type: raw['type'],
-              address: raw['address'],
-              location:
-                  decodeEnum(AndroidMicrophoneLocation.values, raw['location']),
-              group: raw['group'],
-              indexInTheGroup: raw['indexInTheGroup'],
-              position: (raw['position'] as List<dynamic>).cast<double>(),
-              orientation: (raw['orientation'] as List<dynamic>).cast<double>(),
-              frequencyResponse: (raw['frequencyResponse'] as List<dynamic>)
-                  .map((dynamic item) => (item as List<dynamic>).cast<double>())
-                  .toList(),
-              channelMapping: (raw['channelMapping'] as List<dynamic>)
-                  .map((dynamic item) => (item as List<dynamic>).cast<int>())
-                  .toList(),
-              sensitivity: raw['sensitivity'],
-              maxSpl: raw['maxSpl'],
-              minSpl: raw['minSpl'],
-              directionality: decodeEnum(AndroidMicrophoneDirectionality.values,
-                  raw['directionality']),
-            ))
+        'getMicrophones', [sessionKey])) as List<dynamic>)
+        .map((raw) =>
+        AndroidMicrophoneInfo(
+          description: raw['description'],
+          id: raw['id'],
+          type: raw['type'],
+          address: raw['address'],
+          location:
+          decodeEnum(AndroidMicrophoneLocation.values, raw['location']),
+          group: raw['group'],
+          indexInTheGroup: raw['indexInTheGroup'],
+          position: (raw['position'] as List<dynamic>).cast<double>(),
+          orientation: (raw['orientation'] as List<dynamic>).cast<double>(),
+          frequencyResponse: (raw['frequencyResponse'] as List<dynamic>)
+              .map((dynamic item) => (item as List<dynamic>).cast<double>())
+              .toList(),
+          channelMapping: (raw['channelMapping'] as List<dynamic>)
+              .map((dynamic item) => (item as List<dynamic>).cast<int>())
+              .toList(),
+          sensitivity: raw['sensitivity'],
+          maxSpl: raw['maxSpl'],
+          minSpl: raw['minSpl'],
+          directionality: decodeEnum(AndroidMicrophoneDirectionality.values,
+              raw['directionality']),
+        ))
         .toList();
   }
 
   /// (UNTESTED) Requires API level 29
-  Future<bool> isHapticPlaybackSupported() async {
-    return (await _channel.invokeMethod<bool>('isHapticPlaybackSupported'))!;
+  Future<bool> isHapticPlaybackSupported(int sessionKey) async {
+    return (await _channel.invokeMethod<bool>('isHapticPlaybackSupported', [sessionKey]))!;
+  }
+
+  void release(int sessionKey) {
+    _channel.invokeMethod<bool>('release', [sessionKey]);
+    _onAudioFocusChangedMap.remove(sessionKey);
+    _onAudioDevicesAddedMap.remove(sessionKey);
+    _onAudioDevicesRemovedMap.remove(sessionKey);
   }
 
   void close() {
@@ -383,7 +395,7 @@ class AndroidAudioManager {
       sampleRates: (raw['sampleRates'] as List<dynamic>).cast<int>(),
       channelMasks: (raw['channelMasks'] as List<dynamic>).cast<int>(),
       channelIndexMasks:
-          (raw['channelIndexMasks'] as List<dynamic>).cast<int>(),
+      (raw['channelIndexMasks'] as List<dynamic>).cast<int>(),
       channelCounts: (raw['channelCounts'] as List<dynamic>).cast<int>(),
       encodings: (raw['encodings'] as List<dynamic>).cast<int>(),
       type: decodeEnum(AndroidAudioDeviceType.values, raw['type']),
@@ -410,13 +422,14 @@ class AndroidAudioAttributes {
 
   AndroidAudioAttributes.fromJson(Map data)
       : this(
-          contentType:
-              decodeEnum(AndroidAudioContentType.values, data['contentType']),
-          flags: AndroidAudioFlags(data['flags']),
-          usage: decodeMapEnum(AndroidAudioUsage.values, data['usage']),
-        );
+    contentType:
+    decodeEnum(AndroidAudioContentType.values, data['contentType']),
+    flags: AndroidAudioFlags(data['flags']),
+    usage: decodeMapEnum(AndroidAudioUsage.values, data['usage']),
+  );
 
-  Map toJson() => {
+  Map toJson() =>
+      {
         'contentType': contentType.index,
         'flags': flags.value,
         'usage': usage.value,
@@ -425,9 +438,9 @@ class AndroidAudioAttributes {
   @override
   bool operator ==(Object other) =>
       other is AndroidAudioAttributes &&
-      contentType == other.contentType &&
-      flags == other.flags &&
-      usage == other.usage;
+          contentType == other.contentType &&
+          flags == other.flags &&
+          usage == other.usage;
 
   int get hashCode =>
       '${contentType.index}-${flags.value}-${usage.value}'.hashCode;
@@ -541,7 +554,8 @@ class AndroidAudioFocusRequest {
     this.onAudioFocusChanged,
   });
 
-  Map toJson() => {
+  Map toJson() =>
+      {
         'gainType': gainType.index,
         'audioAttribute': audioAttributes?.toJson(),
         'willPauseWhenDucked': willPauseWhenDucked,
@@ -620,31 +634,31 @@ class AndroidAudioAdjustment {
 
 class AndroidAudioVolumeFlags {
   static const AndroidAudioVolumeFlags showUi =
-      const AndroidAudioVolumeFlags(1 << 0);
+  const AndroidAudioVolumeFlags(1 << 0);
   static const AndroidAudioVolumeFlags allowRinger_modes =
-      const AndroidAudioVolumeFlags(1 << 1);
+  const AndroidAudioVolumeFlags(1 << 1);
   static const AndroidAudioVolumeFlags playSound =
-      const AndroidAudioVolumeFlags(1 << 2);
+  const AndroidAudioVolumeFlags(1 << 2);
   static const AndroidAudioVolumeFlags removeSoundAndVibrate =
-      const AndroidAudioVolumeFlags(1 << 3);
+  const AndroidAudioVolumeFlags(1 << 3);
   static const AndroidAudioVolumeFlags vibrate =
-      const AndroidAudioVolumeFlags(1 << 4);
+  const AndroidAudioVolumeFlags(1 << 4);
   static const AndroidAudioVolumeFlags fixedVolume =
-      const AndroidAudioVolumeFlags(1 << 5);
+  const AndroidAudioVolumeFlags(1 << 5);
   static const AndroidAudioVolumeFlags bluetoothAbsVolume =
-      const AndroidAudioVolumeFlags(1 << 6);
+  const AndroidAudioVolumeFlags(1 << 6);
   static const AndroidAudioVolumeFlags show_silent_hint =
-      const AndroidAudioVolumeFlags(1 << 7);
+  const AndroidAudioVolumeFlags(1 << 7);
   static const AndroidAudioVolumeFlags hdmiSystemAudioVolume =
-      const AndroidAudioVolumeFlags(1 << 8);
+  const AndroidAudioVolumeFlags(1 << 8);
   static const AndroidAudioVolumeFlags activeMediaOnly =
-      const AndroidAudioVolumeFlags(1 << 9);
+  const AndroidAudioVolumeFlags(1 << 9);
   static const AndroidAudioVolumeFlags showUiWarnings =
-      const AndroidAudioVolumeFlags(1 << 10);
+  const AndroidAudioVolumeFlags(1 << 10);
   static const AndroidAudioVolumeFlags showVibrateHint =
-      const AndroidAudioVolumeFlags(1 << 11);
+  const AndroidAudioVolumeFlags(1 << 11);
   static const AndroidAudioVolumeFlags fromKey =
-      const AndroidAudioVolumeFlags(1 << 12);
+  const AndroidAudioVolumeFlags(1 << 12);
 
   final int value;
 
@@ -838,13 +852,13 @@ enum AndroidMicrophoneDirectionality {
 /// Requires API level 23
 class AndroidGetAudioDevicesFlags {
   static const AndroidGetAudioDevicesFlags none =
-      AndroidGetAudioDevicesFlags(0);
+  AndroidGetAudioDevicesFlags(0);
   static const AndroidGetAudioDevicesFlags inputs =
-      AndroidGetAudioDevicesFlags(1 << 0);
+  AndroidGetAudioDevicesFlags(1 << 0);
   static const AndroidGetAudioDevicesFlags outputs =
-      AndroidGetAudioDevicesFlags(1 << 1);
+  AndroidGetAudioDevicesFlags(1 << 1);
   static final AndroidGetAudioDevicesFlags all =
-      AndroidGetAudioDevicesFlags.inputs | AndroidGetAudioDevicesFlags.outputs;
+  AndroidGetAudioDevicesFlags.inputs | AndroidGetAudioDevicesFlags.outputs;
 
   final int value;
 
@@ -893,7 +907,8 @@ class AndroidKeyEvent {
     required this.eventTime,
   });
 
-  Map<String, dynamic> _toMap() => <String, dynamic>{
+  Map<String, dynamic> _toMap() =>
+      <String, dynamic>{
         'deviceId': deviceId,
         'source': source,
         'displayId': displayId,

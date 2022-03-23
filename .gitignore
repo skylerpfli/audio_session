@@ -1,9 +1,9 @@
 .DS_Store
 .dart_tool/
-
+.idea/
+.idea/workspace.xml
 .packages
 .pub/
-
 build/
 
 pubspec.lock
